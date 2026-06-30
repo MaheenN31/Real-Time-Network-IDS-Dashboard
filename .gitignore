@@ -2,25 +2,29 @@
 __pycache__/
 *.py[cod]
 
-# Virtual Environment
+# Virtual environments
 venv/
 .env
+.venv/
 
-# Database
+# Database files
 *.db
 *.sqlite
+*.sqlite3
 
 # Logs
 *.log
 *.gz
-
 snort_logs/
 
-# Streamlit cache
-.streamlit/
-
-# Packet captures (optional)
+# Packet captures
 *.pcap
+captures/*
+!captures/sample_capture.pcap
+!captures/.gitkeep
+
+# Streamlit cache/config
+.streamlit/
 
 # OS files
 .DS_Store

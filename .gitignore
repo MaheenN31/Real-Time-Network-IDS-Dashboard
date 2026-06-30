@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual Environment
+venv/
+.env
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+*.gz
+
+snort_logs/
+
+# Streamlit cache
+.streamlit/
+
+# Packet captures (optional)
+*.pcap
+
+# OS files
+.DS_Store
+Thumbs.db

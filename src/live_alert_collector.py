@@ -1,71 +1,261 @@
-import time
-import re
+import json
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
 DB_FILE = "ids_live.db"
-ALERT_FILE = Path.home() / "snort_logs" / "snort_alerts.txt"
+ALERT_FILE = Path.home() / "snort_logs" / "alert_json.txt"
+MAX_ALERTS = 1000
 
-alert_pattern = re.compile(
-    r'\[\*\*\]\s+\[(.*?)\]\s+"?(.*?)"?\s+\[\*\*\].*?'
-    r'\[Classification:\s*(.*?)\]\s+'
-    r'\[Priority:\s*(\d+)\]\s+'
-    r'\{(.*?)\}\s+'
-    r'(.*?)\s+->\s+(.*)'
-)
 
-def save_alert(line):
-    match = alert_pattern.search(line)
-    if not match:
-        return
+def to_int(value):
+    if value is None or value == "":
+        return None
 
-    sid = match.group(1).strip()
-    rule = match.group(2).strip()
-    classification = match.group(3).strip()
-    priority = int(match.group(4).strip())
-    protocol = match.group(5).strip()
-    src = match.group(6).strip()
-    dst = match.group(7).strip()
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
-    conn = sqlite3.connect(DB_FILE)
+
+def endpoint(ip, port):
+    if not ip:
+        return None
+
+    if port is None or port == "":
+        return ip
+
+    return f"{ip}:{port}"
+
+
+def get_connection():
+    return sqlite3.connect(DB_FILE)
+
+
+def add_column_if_missing(cur, table_name, column_name, column_definition):
+    cur.execute(f"PRAGMA table_info({table_name})")
+    existing_columns = [row[1] for row in cur.fetchall()]
+
+    if column_name not in existing_columns:
+        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+
+def setup_database():
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO alerts
-        (timestamp, rule, classification, priority, protocol, src, dst)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        rule,
-        classification,
-        priority,
-        protocol,
-        src,
-        dst
-    ))
-    cur.execute("""
-        DELETE FROM alerts
-        WHERE id < (
-         SELECT COALESCE(MAX(id) - 1000, 0)
-         FROM alerts)
-        """)
+    CREATE TABLE IF NOT EXISTS alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+    """)
+
+    alert_columns = {
+        # Old fields kept for dashboard compatibility
+        "timestamp": "TEXT",
+        "rule": "TEXT",
+        "classification": "TEXT",
+        "priority": "INTEGER",
+        "protocol": "TEXT",
+        "src": "TEXT",
+        "dst": "TEXT",
+
+        # New Snort JSON fields
+        "snort_rule": "TEXT",
+        "iface": "TEXT",
+        "service": "TEXT",
+        "src_addr": "TEXT",
+        "src_port": "INTEGER",
+        "dst_addr": "TEXT",
+        "dst_port": "INTEGER",
+        "direction": "TEXT",
+        "pkt_len": "INTEGER",
+        "action": "TEXT",
+        "msg": "TEXT",
+        "gid": "INTEGER",
+        "sid": "INTEGER",
+        "rev": "INTEGER",
+        "ttl": "INTEGER",
+        "tos": "INTEGER",
+        "tcp_flags": "TEXT",
+        "icmp_type": "INTEGER",
+        "icmp_code": "INTEGER",
+        "client_pkts": "INTEGER",
+        "client_bytes": "INTEGER",
+        "server_pkts": "INTEGER",
+        "server_bytes": "INTEGER",
+        "raw_json": "TEXT",
+    }
+
+    for column_name, column_definition in alert_columns.items():
+        add_column_if_missing(cur, "alerts", column_name, column_definition)
 
     conn.commit()
     conn.close()
 
-print(f"Watching Snort alert file: {ALERT_FILE}")
+def save_alert(alert):
+    raw_json = json.dumps(alert, sort_keys=True)
 
-ALERT_FILE.parent.mkdir(parents=True, exist_ok=True)
-ALERT_FILE.touch(exist_ok=True)
+    timestamp = alert.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = alert.get("msg")
+    snort_rule = alert.get("rule")
+    classification = alert.get("class")
+    priority = to_int(alert.get("priority"))
+    protocol = alert.get("proto")
 
-with open(ALERT_FILE, "r") as f:
-    f.seek(0, 2)
+    src_addr = alert.get("src_addr")
+    src_port = to_int(alert.get("src_port"))
+    dst_addr = alert.get("dst_addr")
+    dst_port = to_int(alert.get("dst_port"))
 
-    while True:
-        line = f.readline()
+    src = endpoint(src_addr, src_port)
+    dst = endpoint(dst_addr, dst_port)
 
-        if line:
-            save_alert(line)
-        else:
-            time.sleep(0.5)
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM alerts WHERE raw_json = ?", (raw_json,))
+    existing_alert = cur.fetchone()
+
+    if existing_alert:
+        conn.close()
+        return
+
+    cur.execute("""
+        INSERT INTO alerts (
+            timestamp,
+            rule,
+            classification,
+            priority,
+            protocol,
+            src,
+            dst,
+            snort_rule,
+            iface,
+            service,
+            src_addr,
+            src_port,
+            dst_addr,
+            dst_port,
+            direction,
+            pkt_len,
+            action,
+            msg,
+            gid,
+            sid,
+            rev,
+            ttl,
+            tos,
+            tcp_flags,
+            icmp_type,
+            icmp_code,
+            client_pkts,
+            client_bytes,
+            server_pkts,
+            server_bytes,
+            raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        timestamp,
+
+        # Keep old dashboard compatibility:
+        # old "rule" column now stores the readable Snort message.
+        msg,
+
+        classification,
+        priority,
+        protocol,
+        src,
+        dst,
+
+        # New Snort JSON fields:
+        snort_rule,
+        alert.get("iface"),
+        alert.get("service"),
+        src_addr,
+        src_port,
+        dst_addr,
+        dst_port,
+        alert.get("dir"),
+        to_int(alert.get("pkt_len")),
+        alert.get("action"),
+        msg,
+        to_int(alert.get("gid")),
+        to_int(alert.get("sid")),
+        to_int(alert.get("rev")),
+        to_int(alert.get("ttl")),
+        to_int(alert.get("tos")),
+        alert.get("tcp_flags"),
+        to_int(alert.get("icmp_type")),
+        to_int(alert.get("icmp_code")),
+        to_int(alert.get("client_pkts")),
+        to_int(alert.get("client_bytes")),
+        to_int(alert.get("server_pkts")),
+        to_int(alert.get("server_bytes")),
+        raw_json,
+    ))
+
+    cur.execute("""
+        DELETE FROM alerts
+        WHERE id NOT IN (
+            SELECT id
+            FROM alerts
+            ORDER BY id DESC
+            LIMIT ?
+        )
+    """, (MAX_ALERTS,))
+
+    conn.commit()
+    conn.close()
+
+
+def follow_alert_file():
+    print(f"Watching Snort JSON alert file: {ALERT_FILE}")
+    print(f"Writing latest {MAX_ALERTS} alerts to: {DB_FILE}")
+
+    ALERT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ALERT_FILE.touch(exist_ok=True)
+
+    with open(ALERT_FILE, "r") as f:
+        # Start from beginning so already captured JSON alerts also get inserted.
+        f.seek(0)
+
+        while True:
+            line = f.readline()
+
+            if line:
+                line = line.strip()
+
+                if not line:
+                    continue
+
+                try:
+                    alert = json.loads(line)
+                    save_alert(alert)
+
+                    print(
+                        f"[ALERT] {alert.get('timestamp')} | "
+                        f"{alert.get('msg')} | "
+                        f"{alert.get('src_addr')} -> {alert.get('dst_addr')} | "
+                        f"Priority: {alert.get('priority')}"
+                    )
+
+                except json.JSONDecodeError:
+                    print(f"[!] Skipping invalid JSON line: {line[:120]}")
+
+            else:
+                time.sleep(0.5)
+
+                try:
+                    if ALERT_FILE.stat().st_size < f.tell():
+                        print("[*] Alert file was truncated. Resetting reader.")
+                        f.seek(0)
+                except FileNotFoundError:
+                    print("[!] Alert file not found. Waiting...")
+                    time.sleep(1)
+
+
+if __name__ == "__main__":
+    setup_database()
+    follow_alert_file()

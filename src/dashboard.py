@@ -3,6 +3,7 @@ import json
 import sqlite3
 import hashlib
 import subprocess
+import html
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from pathlib import Path
@@ -12,6 +13,9 @@ import plotly.express as px
 import streamlit as st
 
 DB_FILE = Path("ids_live.db")
+RULE_DOC_JSON_FILE = Path("data/json/rule_docs_preprocessed_by_sid.json")
+
+DASHBOARD_VERSION = "v3.0"
 
 st.set_page_config(
     page_title="Network IDS Dashboard",
@@ -27,13 +31,251 @@ st.markdown("""
     background-color: #0e1117;
 }
 .metric-card {
-    background-color: #161b22;
-    padding: 20px;
-    border-radius: 12px;
+    background: linear-gradient(145deg, #111827, #0d1117);
+    padding: 16px 16px 14px 16px;
+    border-radius: 14px;
     border: 1px solid #30363d;
+    min-height: 102px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.20);
+}
+.metric-card:hover {
+    border-color: rgba(88, 166, 255, 0.55);
+    transform: translateY(-1px);
+    transition: all 0.15s ease-in-out;
+}
+.metric-label {
+    color: #c9d1d9;
+    font-size: 13px;
+    font-weight: 750;
+    margin-bottom: 10px;
+    white-space: nowrap;
+}
+.metric-value {
+    color: #ffffff;
+    font-size: 34px;
+    font-weight: 850;
+    line-height: 1;
+    letter-spacing: -0.5px;
+}
+.metric-accent {
+    width: 34px;
+    height: 4px;
+    border-radius: 999px;
+    margin-top: 14px;
+    background: #58a6ff;
+}
+.metric-accent.red {
+    background: #ff4b4b;
+}
+.metric-accent.orange {
+    background: #f59e0b;
+}
+.metric-accent.green {
+    background: #2ea043;
+}
+.metric-accent.purple {
+    background: #a371f7;
 }
 h1, h2, h3 {
     color: #f0f6fc;
+}
+.version-pill {
+    display: inline-block;
+    background: linear-gradient(135deg, #238636, #2ea043);
+    color: #ffffff;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sidebar-card {
+    background: transparent;
+    border: 0;
+    padding: 6px 4px 14px 4px;
+    margin-bottom: 14px;
+}
+.sidebar-title {
+    font-size: 22px;
+    font-weight: 850;
+    color: #f0f6fc;
+    margin-bottom: 6px;
+}
+.sidebar-subtitle {
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.45;
+}
+.sidebar-section-label {
+    color: #8b949e;
+    font-size: 14px;
+    font-weight: 700;
+    margin: 26px 0 12px 4px;
+}
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 13px 12px;
+    border-radius: 12px;
+    color: #8b949e !important;
+    text-decoration: none !important;
+    font-size: 17px;
+    font-weight: 650;
+    border-left: 3px solid transparent;
+    transition: all 0.15s ease-in-out;
+}
+.sidebar-nav-item:hover {
+    background-color: rgba(88, 166, 255, 0.10);
+    color: #f0f6fc !important;
+}
+.sidebar-nav-item.active {
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid #ffffff;
+}
+.sidebar-nav-icon {
+    width: 24px;
+    display: inline-flex;
+    justify-content: center;
+    opacity: 0.95;
+}
+.sidebar-note {
+    border-top: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 28px;
+    padding-top: 20px;
+}
+.info-card {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin: 12px 0 18px 0;
+}
+.selected-alert-card {
+    background-color: #111827;
+    border-left: 5px solid #ff4b4b;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 14px 0 18px 0;
+}
+.small-muted {
+    color: #8b949e;
+    font-size: 13px;
+}
+.rule-doc-notice {
+    background: rgba(46, 160, 67, 0.14);
+    border: 1px solid rgba(46, 160, 67, 0.35);
+    color: #7ee787;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 8px 0 16px 0;
+    font-size: 14px;
+    font-weight: 650;
+}
+.rule-kv-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 10px 0 18px 0;
+}
+.rule-kv-card {
+    background: #111827;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 14px 16px;
+    min-height: 78px;
+}
+.rule-kv-label {
+    color: #8b949e;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+.rule-kv-value {
+    color: #f0f6fc;
+    font-size: 21px;
+    font-weight: 850;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+.rule-doc-card {
+    background: #111827;
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin: 14px 0;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.rule-doc-card.accent-blue { border-left: 5px solid #58a6ff; }
+.rule-doc-card.accent-green { border-left: 5px solid #2ea043; }
+.rule-doc-card.accent-orange { border-left: 5px solid #f59e0b; }
+.rule-doc-title {
+    color: #f0f6fc;
+    font-size: 17px;
+    font-weight: 850;
+    margin-bottom: 10px;
+}
+.rule-doc-body {
+    color: #c9d1d9;
+    font-size: 15px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+.rule-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+.rule-mini-item {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.rule-mini-label {
+    color: #8b949e;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+.rule-mini-value {
+    color: #f0f6fc;
+    font-size: 14px;
+    font-weight: 750;
+    overflow-wrap: anywhere;
+}
+.rule-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+.rule-chip {
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    color: #79c0ff;
+    border-radius: 999px;
+    padding: 6px 11px;
+    font-size: 13px;
+    font-weight: 750;
+}
+@media (max-width: 1000px) {
+    .rule-kv-grid, .rule-mini-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -94,6 +336,237 @@ def show_doc_field(label, value):
     if value is not None and str(value).strip() not in ["", "nan", "None"]:
         st.markdown(f"**{label}:**")
         st.write(value)
+
+
+def metric_card(label, value, accent="blue"):
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+            <div class="metric-accent {accent}"></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def normalize_rule_key(value):
+    """Convert GID/SID values from alerts into clean JSON lookup keys."""
+    if value is None or pd.isna(value):
+        return None
+
+    try:
+        return str(int(float(value)))
+    except Exception:
+        text = str(value).strip()
+        if text.endswith(".0"):
+            text = text[:-2]
+        return text if text else None
+
+
+@st.cache_data(ttl=300)
+def load_rule_docs_json():
+    """Load the preprocessed JSON rule documentation file."""
+    possible_paths = [
+        RULE_DOC_JSON_FILE,
+        Path("rule_docs_preprocessed_by_sid.json"),
+        Path("../data/json/rule_docs_preprocessed_by_sid.json"),
+    ]
+
+    for json_path in possible_paths:
+        if json_path.exists():
+            try:
+                with json_path.open("r", encoding="utf-8") as file:
+                    return json.load(file)
+            except Exception:
+                return {}
+
+    return {}
+
+
+def load_rule_doc_from_json(gid, sid):
+    """Fetch a rule document from the SID-keyed preprocessed JSON dataset."""
+    docs = load_rule_docs_json()
+    if not docs:
+        return {}
+
+    sid_key = normalize_rule_key(sid)
+    gid_key = normalize_rule_key(gid) or "1"
+
+    if not sid_key:
+        return {}
+
+    lookup_keys = [
+        sid_key,
+        f"{gid_key}:{sid_key}",
+        f"{gid_key}-{sid_key}",
+    ]
+
+    for key in lookup_keys:
+        if key in docs:
+            return docs[key]
+
+    return {}
+
+
+def clean_display_value(value):
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    text = str(value).strip()
+    if text.lower() in ["", "nan", "none", "null", "n/a", "na"]:
+        return ""
+    return text
+
+
+def render_kv_cards(items):
+    cards = []
+    for label, value in items:
+        value = clean_display_value(value)
+        if not value:
+            continue
+        cards.append(
+            '<div class="rule-kv-card">'
+            f'<div class="rule-kv-label">{html.escape(str(label))}</div>'
+            f'<div class="rule-kv-value">{html.escape(value)}</div>'
+            '</div>'
+        )
+    if cards:
+        st.markdown(f'<div class="rule-kv-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def render_rule_card(title, body, accent="blue"):
+    body = clean_display_value(body)
+    if not body:
+        return
+    st.markdown(
+        '<div class="rule-doc-card accent-' + html.escape(accent) + '">'
+        f'<div class="rule-doc-title">{html.escape(str(title))}</div>'
+        f'<div class="rule-doc-body">{html.escape(body)}</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+
+def render_mini_grid(items):
+    rows = []
+    for label, value in items:
+        value = clean_display_value(value)
+        if not value:
+            continue
+        rows.append(
+            '<div class="rule-mini-item">'
+            f'<div class="rule-mini-label">{html.escape(str(label))}</div>'
+            f'<div class="rule-mini-value">{html.escape(value)}</div>'
+            '</div>'
+        )
+    if rows:
+        st.markdown(f'<div class="rule-mini-grid">{"".join(rows)}</div>', unsafe_allow_html=True)
+
+
+def render_chip_list(title, values):
+    values = clean_display_value(values)
+    if not values:
+        return
+    chips = []
+    for item in re.split(r"[,|]", values):
+        item = item.strip()
+        if item:
+            chips.append(f'<span class="rule-chip">{html.escape(item)}</span>')
+    if chips:
+        st.markdown(
+            '<div class="rule-doc-card accent-blue">'
+            f'<div class="rule-doc-title">{html.escape(str(title))}</div>'
+            f'<div class="rule-chip-row">{"".join(chips)}</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+
+def show_json_rule_doc(rule_doc, selected_gid, selected_sid):
+    """Render rule information from the preprocessed JSON dataset in a clean, card-based layout."""
+    if not load_rule_docs_json():
+        st.error(
+            "The preprocessed JSON file was not found. Expected path: "
+            f"`{RULE_DOC_JSON_FILE}`"
+        )
+        return
+
+    if not rule_doc:
+        st.warning(f"No JSON documentation entry was found for rule `{selected_gid}:{selected_sid}`.")
+        return
+
+    st.markdown(
+        '<div class="rule-doc-notice">Rule details loaded from <code>data/json/rule_docs_preprocessed_by_sid.json</code>.</div>',
+        unsafe_allow_html=True
+    )
+
+    doc_gid = rule_doc.get("gid", selected_gid)
+    doc_sid = rule_doc.get("sid", selected_sid)
+    doc_rev = rule_doc.get("rev", "N/A")
+    doc_found = "Yes" if str(rule_doc.get("doc_found", "")).strip() == "1" else "No"
+
+    render_kv_cards([
+        ("GID", doc_gid),
+        ("SID", doc_sid),
+        ("REV", doc_rev),
+        ("Documentation", doc_found),
+    ])
+
+    doc_url = clean_display_value(rule_doc.get("doc_url"))
+    if doc_url:
+        st.markdown(f"**Documentation URL:** {doc_url}")
+
+    render_rule_card("Alert Message", rule_doc.get("msg") or rule_doc.get("alert_message_doc"), accent="blue")
+    render_rule_card("Rule Category", rule_doc.get("rule_category"), accent="green")
+
+    render_mini_grid([
+        ("Classification", rule_doc.get("classtype")),
+        ("Protocol", rule_doc.get("protocol")),
+        ("Service", rule_doc.get("service")),
+        ("Flow", rule_doc.get("flow")),
+    ])
+
+    render_rule_card("Rule Explanation", rule_doc.get("rule_explanation"), accent="blue")
+    render_rule_card("What To Look For", rule_doc.get("what_to_look_for"), accent="orange")
+    render_rule_card("Known Usage", rule_doc.get("known_usage"), accent="orange")
+    render_rule_card("False Positives", rule_doc.get("false_positives"), accent="orange")
+    render_rule_card("Vulnerability / Impact", rule_doc.get("rule_vulnerability"), accent="orange")
+
+    render_chip_list("CVE References", rule_doc.get("cve_ids"))
+
+    mitre_id = clean_display_value(rule_doc.get("mitre_id"))
+    if mitre_id:
+        mitre_text = mitre_id
+        tactic = clean_display_value(rule_doc.get("mitre_tactic"))
+        technique = clean_display_value(rule_doc.get("mitre_technique"))
+        if tactic or technique:
+            mitre_text += f" — {tactic} / {technique}"
+        render_rule_card("MITRE ATT&CK Mapping", mitre_text, accent="green")
+
+    with st.expander("Rule Metadata from Preprocessed JSON"):
+        source = f"{clean_display_value(rule_doc.get('src_net'))}:{clean_display_value(rule_doc.get('src_port'))}".strip(":")
+        destination = f"{clean_display_value(rule_doc.get('dst_net'))}:{clean_display_value(rule_doc.get('dst_port'))}".strip(":")
+        render_mini_grid([
+            ("Action", rule_doc.get("action")),
+            ("Source", source),
+            ("Direction", rule_doc.get("direction_label")),
+            ("Destination", destination),
+            ("Content Matches", rule_doc.get("content_matches")),
+            ("Metadata", rule_doc.get("metadata")),
+            ("References", rule_doc.get("references_text")),
+            ("Rule Groups", rule_doc.get("rule_groups")),
+            ("Contributors", rule_doc.get("contributors")),
+        ])
+
+    if clean_display_value(rule_doc.get("rule_text")):
+        with st.expander("Original Rule Text from JSON Dataset"):
+            st.code(rule_doc.get("rule_text", ""), language="text")
 
 RULES_FILE = Path("/usr/local/etc/snort/rules/snort3-community.rules")
 
@@ -362,8 +835,73 @@ def signature_plain_english(row):
 
     return "\n\n".join(parts)
 
-st.title("🛡️ Network Intrusion Detection Dashboard")
+
+# =========================
+# Dashboard Header
+# =========================
+
+st.markdown(
+    f"""
+    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <h1 style="margin-bottom: 0;">Network Intrusion Detection Dashboard</h1>
+        <span class="version-pill">{DASHBOARD_VERSION}</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 st.caption("Live packet monitoring and Snort alert visualization")
+
+st.sidebar.markdown(
+    f"""
+    <div class="sidebar-card">
+        <div class="sidebar-title">NIDS Dashboard</div>
+        <div class="sidebar-subtitle">
+            Real-time Snort alerting, packet visibility, and rule explanation.
+        </div>
+        <div style="margin-top: 14px;">
+            <span class="version-pill">{DASHBOARD_VERSION}</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+try:
+    page_key = st.query_params.get("page", "alerts")
+except Exception:
+    page_key = st.experimental_get_query_params().get("page", ["alerts"])[0]
+
+if isinstance(page_key, list):
+    page_key = page_key[0]
+
+if page_key not in ["alerts", "traffic"]:
+    page_key = "alerts"
+
+page = "Alert Dashboard" if page_key == "alerts" else "Network Traffic Dashboard"
+alert_active = "active" if page_key == "alerts" else ""
+traffic_active = "active" if page_key == "traffic" else ""
+
+st.sidebar.markdown(
+    f"""
+    <div class="sidebar-section-label">Pages</div>
+    <div class="sidebar-nav">
+        <a class="sidebar-nav-item {alert_active}" href="?page=alerts" target="_self">
+            <span class="sidebar-nav-icon">▦</span>
+            <span>Alert Dashboard</span>
+        </a>
+        <a class="sidebar-nav-item {traffic_active}" href="?page=traffic" target="_self">
+            <span class="sidebar-nav-icon">▤</span>
+            <span>Network Traffic Dashboard</span>
+        </a>
+    </div>
+    <div class="sidebar-note">
+        Use the alert page for Snort detections and rule documentation.<br><br>
+        Use the traffic page for packet, protocol, service, and host visibility.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 if not DB_FILE.exists():
     st.error("Database not found. Please run init_db.py first.")
@@ -408,721 +946,659 @@ if not packets.empty:
     icmp_count = len(packets[packets["protocol"] == "ICMP"])
     udp_count = len(packets[packets["protocol"] == "UDP"])
 
-col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-
-col1.metric("Total Packets", total_packets)
-col2.metric("Snort Alerts", total_alerts)
-col3.metric("Active Hosts", active_hosts)
-col4.metric("TCP Packets", tcp_count)
-col5.metric("ICMP Packets", icmp_count)
-col6.metric("HTTP Requests", http_count)
-col7.metric("SSH Connections", ssh_count)
-
-st.divider()
-
-
-# =========================
-# Ruleset Status
-# =========================
-
-with st.expander("Snort Ruleset Status", expanded=False):
-    snort_version = get_snort_version()
-    ruleset_status = get_ruleset_status()
-
+if page == "Alert Dashboard":
+    st.subheader("Alert Dashboard")
     st.caption(
-        "This panel shows which local Snort engine and Community Rules file are being used. "
-        "It helps make alert results reproducible because different rule versions may detect traffic differently."
+        "This page focuses on Snort alerts, alert severity, signatures, rule documentation, "
+        "and raw JSON alert details."
     )
 
-    r1, r2, r3, r4 = st.columns(4)
+    # =========================
+    # Ruleset Status
+    # =========================
 
-    r1.metric("Enabled Alert Rules", ruleset_status["enabled_alert_rules"])
-    r2.metric("Disabled Alert Rules", ruleset_status["disabled_alert_rules"])
-    r3.metric("Total Alert Rules", ruleset_status["total_alert_rules"])
-    r4.metric("Rules File Size", ruleset_status["file_size"])
+    with st.expander("Snort Ruleset Status", expanded=False):
+        snort_version = get_snort_version()
+        ruleset_status = get_ruleset_status()
 
-    st.markdown("#### Ruleset Details")
-
-    ruleset_details = pd.DataFrame([
-        {"Field": "Snort Version", "Value": snort_version},
-        {"Field": "Rules File", "Value": ruleset_status["rules_file"]},
-        {"Field": "Rules File Exists", "Value": ruleset_status["exists"]},
-        {"Field": "Last Modified", "Value": ruleset_status["last_modified"]},
-        {"Field": "SHA-256 Hash", "Value": ruleset_status["sha256"]},
-    ])
-
-    st.dataframe(
-        ruleset_details,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    if not ruleset_status["exists"]:
-        st.warning(
-            "The Snort Community Rules file was not found at the expected path. "
-            "Rule lookup and signature explanation may not work until the path is corrected."
+        st.caption(
+            "This panel shows which local Snort engine and Community Rules file are being used. "
+            "It helps make alert results reproducible because different rule versions may detect traffic differently."
         )
 
-# =========================
-# Traffic Overview
-# =========================
+        r1, r2, r3, r4 = st.columns(4)
 
-st.subheader("Network Traffic Overview")
+        r1.metric("Enabled Alert Rules", ruleset_status["enabled_alert_rules"])
+        r2.metric("Disabled Alert Rules", ruleset_status["disabled_alert_rules"])
+        r3.metric("Total Alert Rules", ruleset_status["total_alert_rules"])
+        r4.metric("Rules File Size", ruleset_status["file_size"])
 
-left, right = st.columns(2)
+        st.markdown("#### Ruleset Details")
 
-with left:
-    protocol_df = load_query("""
-        SELECT protocol, COUNT(*) AS count
-        FROM packets
-        GROUP BY protocol
-        ORDER BY count DESC
-    """)
+        ruleset_details = pd.DataFrame([
+            {"Field": "Snort Version", "Value": snort_version},
+            {"Field": "Rules File", "Value": ruleset_status["rules_file"]},
+            {"Field": "Rules File Exists", "Value": ruleset_status["exists"]},
+            {"Field": "Last Modified", "Value": ruleset_status["last_modified"]},
+            {"Field": "SHA-256 Hash", "Value": ruleset_status["sha256"]},
+        ])
 
-    if not protocol_df.empty:
-        fig = px.pie(
-            protocol_df,
-            names="protocol",
-            values="count",
-            title="Protocol Distribution",
-            hole=0.35
+        st.dataframe(
+            ruleset_details,
+            use_container_width=True,
+            hide_index=True
         )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No packet data available yet.")
 
-with right:
-    timeline_df = load_query("""
-        SELECT timestamp, COUNT(*) AS packets
-        FROM packets
+        if not ruleset_status["exists"]:
+            st.warning(
+                "The Snort Community Rules file was not found at the expected path. "
+                "Rule lookup and signature explanation may not work until the path is corrected."
+            )
+
+    # =========================
+    # Alerts
+    # =========================
+
+    st.divider()
+    st.subheader("Snort Alert Analysis")
+
+    # Alert metrics
+    critical_alerts = 0
+    medium_alerts = 0
+    low_alerts = 0
+    unique_alert_types = 0
+
+    if not alerts.empty and "priority" in alerts.columns:
+        critical_alerts = len(alerts[alerts["priority"] == 1])
+        medium_alerts = len(alerts[alerts["priority"] == 2])
+        low_alerts = len(alerts[alerts["priority"] == 3])
+
+    if not alerts.empty:
+        if "msg" in alerts.columns:
+            unique_alert_types = alerts["msg"].fillna(alerts.get("rule", "")).nunique()
+        elif "rule" in alerts.columns:
+            unique_alert_types = alerts["rule"].nunique()
+
+    a1, a2, a3, a4, a5 = st.columns(5)
+
+    with a1:
+        metric_card("Total Alerts", total_alerts, "red")
+    with a2:
+        metric_card("Alert Types", unique_alert_types, "purple")
+    with a3:
+        metric_card("High Priority", critical_alerts, "red")
+    with a4:
+        metric_card("Medium Priority", medium_alerts, "orange")
+    with a5:
+        metric_card("Low Priority", low_alerts, "green")
+
+    alert_col1, alert_col2 = st.columns(2)
+
+    with alert_col1:
+        alert_rules_df = load_query("""
+            SELECT
+                COALESCE(NULLIF(msg, ''), rule) AS signature,
+                COUNT(*) AS alerts
+            FROM alerts
+            GROUP BY signature
+            ORDER BY alerts DESC
+            LIMIT 10
+        """)
+
+        if not alert_rules_df.empty:
+            fig = px.bar(
+                alert_rules_df,
+                x="alerts",
+                y="signature",
+                orientation="h",
+                title="Top Alert Messages"
+            )
+            fig.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                xaxis_title="Alerts",
+                yaxis_title="Snort Alert Message"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No Snort alert signatures available yet.")
+
+    with alert_col2:
+        priority_df = load_query("""
+            SELECT
+                CASE
+                    WHEN priority = 1 THEN 'High'
+                    WHEN priority = 2 THEN 'Medium'
+                    WHEN priority = 3 THEN 'Low'
+                    ELSE 'Unknown'
+                END AS priority_level,
+                COUNT(*) AS alerts
+            FROM alerts
+            GROUP BY priority
+            ORDER BY priority
+        """)
+
+        if not priority_df.empty:
+            fig = px.pie(
+                priority_df,
+                names="priority_level",
+                values="alerts",
+                title="Alert Priority Distribution",
+                hole=0.35
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No alert priority data yet.")
+
+    # Alert timeline
+    alert_timeline_df = load_query("""
+        SELECT timestamp, COUNT(*) AS alerts
+        FROM alerts
         GROUP BY timestamp
         ORDER BY timestamp
     """)
 
-    if not timeline_df.empty:
+    if not alert_timeline_df.empty:
         fig = px.line(
-            timeline_df,
+            alert_timeline_df,
             x="timestamp",
-            y="packets",
-            title="Packets Over Time",
+            y="alerts",
+            title="Alert Timeline",
             markers=True
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No timeline data available yet.")
-
-# =========================
-# Top Talkers
-# =========================
-
-st.subheader("Top Network Hosts")
-
-col_a, col_b = st.columns(2)
-
-with col_a:
-    src_df = load_query("""
-        SELECT src, COUNT(*) AS packets
-        FROM packets
-        WHERE src != 'unknown'
-        GROUP BY src
-        ORDER BY packets DESC
-        LIMIT 10
-    """)
-
-    if not src_df.empty:
-        fig = px.bar(
-            src_df,
-            x="packets",
-            y="src",
-            orientation="h",
-            title="Top Source IPs"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No source IP data available.")
-
-with col_b:
-    dst_df = load_query("""
-        SELECT dst, COUNT(*) AS packets
-        FROM packets
-        WHERE dst != 'unknown'
-        GROUP BY dst
-        ORDER BY packets DESC
-        LIMIT 10
-    """)
-
-    if not dst_df.empty:
-        fig = px.bar(
-            dst_df,
-            x="packets",
-            y="dst",
-            orientation="h",
-            title="Top Destination IPs"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No destination IP data available.")
-
-# =========================
-# Service Distribution
-# =========================
-
-st.subheader("Service Distribution")
-
-service_df = load_query("""
-    SELECT protocol AS service, COUNT(*) AS packets
-    FROM packets
-    WHERE protocol IN ('HTTP', 'SSH', 'ICMP', 'DNS', 'HTTPS')
-    GROUP BY protocol
-    ORDER BY packets DESC
-""")
-
-if not service_df.empty:
-    fig = px.bar(
-        service_df,
-        x="packets",
-        y="service",
-        orientation="h",
-        title="Observed Network Services"
-    )
-    fig.update_layout(
-        yaxis={"categoryorder": "total ascending"},
-        xaxis_title="Packets",
-        yaxis_title="Service"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.dataframe(
-        service_df,
-        use_container_width=True,
-        hide_index=True
-    )
-else:
-    st.info("No service traffic available yet. Generate HTTP, SSH, ICMP, or DNS traffic.")
-
-# =========================
-# Alerts
-# =========================
-
-st.divider()
-st.subheader("Snort Alert Analysis")
-
-# Alert metrics
-critical_alerts = 0
-medium_alerts = 0
-low_alerts = 0
-unique_alert_types = 0
-
-if not alerts.empty and "priority" in alerts.columns:
-    critical_alerts = len(alerts[alerts["priority"] == 1])
-    medium_alerts = len(alerts[alerts["priority"] == 2])
-    low_alerts = len(alerts[alerts["priority"] == 3])
-
-if not alerts.empty:
-    if "msg" in alerts.columns:
-        unique_alert_types = alerts["msg"].fillna(alerts.get("rule", "")).nunique()
-    elif "rule" in alerts.columns:
-        unique_alert_types = alerts["rule"].nunique()
-
-a1, a2, a3, a4, a5 = st.columns(5)
-
-a1.metric("Total Alerts", total_alerts)
-a2.metric("Alert Types", unique_alert_types)
-a3.metric("High Priority", critical_alerts)
-a4.metric("Medium Priority", medium_alerts)
-a5.metric("Low Priority", low_alerts)
-
-alert_col1, alert_col2 = st.columns(2)
-
-with alert_col1:
-    alert_rules_df = load_query("""
-        SELECT
-            COALESCE(NULLIF(msg, ''), rule) AS signature,
-            COUNT(*) AS alerts
-        FROM alerts
-        GROUP BY signature
-        ORDER BY alerts DESC
-        LIMIT 10
-    """)
-
-    if not alert_rules_df.empty:
-        fig = px.bar(
-            alert_rules_df,
-            x="alerts",
-            y="signature",
-            orientation="h",
-            title="Top Alert Messages"
-        )
-        fig.update_layout(
-            yaxis={"categoryorder": "total ascending"},
-            xaxis_title="Alerts",
-            yaxis_title="Snort Alert Message"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No Snort alert signatures available yet.")
-
-with alert_col2:
-    priority_df = load_query("""
-        SELECT
-            CASE
-                WHEN priority = 1 THEN 'High'
-                WHEN priority = 2 THEN 'Medium'
-                WHEN priority = 3 THEN 'Low'
-                ELSE 'Unknown'
-            END AS priority_level,
-            COUNT(*) AS alerts
-        FROM alerts
-        GROUP BY priority
-        ORDER BY priority
-    """)
-
-    if not priority_df.empty:
-        fig = px.pie(
-            priority_df,
-            names="priority_level",
-            values="alerts",
-            title="Alert Priority Distribution",
-            hole=0.35
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No alert priority data yet.")
-
-# Alert timeline
-alert_timeline_df = load_query("""
-    SELECT timestamp, COUNT(*) AS alerts
-    FROM alerts
-    GROUP BY timestamp
-    ORDER BY timestamp
-""")
-
-if not alert_timeline_df.empty:
-    fig = px.line(
-        alert_timeline_df,
-        x="timestamp",
-        y="alerts",
-        title="Alert Timeline",
-        markers=True
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("No alert timeline available yet.")
-
-# Extra JSON feature charts
-feature_col1, feature_col2 = st.columns(2)
-
-with feature_col1:
-    protocol_alerts_df = load_query("""
-        SELECT protocol, COUNT(*) AS alerts
-        FROM alerts
-        WHERE protocol IS NOT NULL AND protocol != ''
-        GROUP BY protocol
-        ORDER BY alerts DESC
-    """)
-
-    if not protocol_alerts_df.empty:
-        fig = px.bar(
-            protocol_alerts_df,
-            x="alerts",
-            y="protocol",
-            orientation="h",
-            title="Alert Protocol Distribution"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No alert protocol data available yet.")
-
-with feature_col2:
-    src_alerts_df = load_query("""
-        SELECT COALESCE(NULLIF(src_addr, ''), src) AS source_ip, COUNT(*) AS alerts
-        FROM alerts
-        WHERE COALESCE(NULLIF(src_addr, ''), src) IS NOT NULL
-          AND COALESCE(NULLIF(src_addr, ''), src) != ''
-        GROUP BY source_ip
-        ORDER BY alerts DESC
-        LIMIT 10
-    """)
-
-    if not src_alerts_df.empty:
-        fig = px.bar(
-            src_alerts_df,
-            x="alerts",
-            y="source_ip",
-            orientation="h",
-            title="Top Alert Source IPs"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No alert source IP data available yet.")
-
-port_col1, port_col2 = st.columns(2)
-
-with port_col1:
-    dst_port_df = load_query("""
-        SELECT dst_port, COUNT(*) AS alerts
-        FROM alerts
-        WHERE dst_port IS NOT NULL
-        GROUP BY dst_port
-        ORDER BY alerts DESC
-        LIMIT 10
-    """)
-
-    if not dst_port_df.empty:
-        dst_port_df["dst_port"] = dst_port_df["dst_port"].astype(str)
-
-        fig = px.bar(
-            dst_port_df,
-            x="alerts",
-            y="dst_port",
-            orientation="h",
-            title="Top Alert Destination Ports"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No destination port data yet. This is normal for ICMP alerts.")
-
-with port_col2:
-    service_alerts_df = load_query("""
-        SELECT service, COUNT(*) AS alerts
-        FROM alerts
-        WHERE service IS NOT NULL AND service != ''
-        GROUP BY service
-        ORDER BY alerts DESC
-        LIMIT 10
-    """)
-
-    if not service_alerts_df.empty:
-        fig = px.bar(
-            service_alerts_df,
-            x="alerts",
-            y="service",
-            orientation="h",
-            title="Alert Service Distribution"
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No alert service data available yet.")
-
-# Recent detailed alert table
-st.subheader("Detailed Recent Snort Alerts")
-
-recent_alerts = load_query("""
-    SELECT
-        timestamp AS "Time",
-        COALESCE(NULLIF(msg, ''), rule) AS "Alert Message",
-        snort_rule AS "Rule ID",
-        classification AS "Classification",
-        priority AS "Priority",
-        protocol AS "Protocol",
-        service AS "Service",
-        COALESCE(NULLIF(src_addr, ''), src) AS "Source IP",
-        src_port AS "Source Port",
-        COALESCE(NULLIF(dst_addr, ''), dst) AS "Destination IP",
-        dst_port AS "Destination Port",
-        direction AS "Direction",
-        pkt_len AS "Packet Length",
-        ttl AS "TTL",
-        tcp_flags AS "TCP Flags",
-        icmp_type AS "ICMP Type",
-        icmp_code AS "ICMP Code",
-        client_pkts AS "Client Packets",
-        client_bytes AS "Client Bytes",
-        server_pkts AS "Server Packets",
-        server_bytes AS "Server Bytes"
-    FROM alerts
-    ORDER BY id DESC
-    LIMIT 100
-""")
-
-if not recent_alerts.empty:
-    def priority_label(p):
-        if p == 1:
-            return "High"
-        elif p == 2:
-            return "Medium"
-        elif p == 3:
-            return "Low"
-        return "Unknown"
-
-    recent_alerts["Priority Level"] = recent_alerts["Priority"].apply(priority_label)
-
-    table_columns = [
-        "Time",
-        "Alert Message",
-        "Rule ID",
-        "Classification",
-        "Priority",
-        "Priority Level",
-        "Protocol",
-        "Service",
-        "Source IP",
-        "Source Port",
-        "Destination IP",
-        "Destination Port",
-        "Direction",
-        "Packet Length",
-        "TTL",
-        "TCP Flags",
-        "ICMP Type",
-        "ICMP Code",
-        "Client Packets",
-        "Client Bytes",
-        "Server Packets",
-        "Server Bytes",
-    ]
-
-    existing_columns = [col for col in table_columns if col in recent_alerts.columns]
-
-    st.dataframe(
-        recent_alerts[existing_columns],
-        use_container_width=True,
-        height=420
-    )
-
-    st.caption(
-        "Each alert is generated when packet contents match a Snort rule signature. "
-        "Priority indicates severity, where 1 is high, 2 is medium, and 3 is low. "
-        "JSON alert fields add protocol, service, packet length, TTL, ICMP, TCP, and flow information."
-    )
-else:
-    st.info("No recent Snort alerts yet.")
-
-# =========================
-# Signature Explanation
-# =========================
-
-st.subheader("Signature / Rule Explanation")
-
-signature_alerts = load_query("""
-    SELECT
-        id,
-        timestamp,
-        COALESCE(NULLIF(msg, ''), rule) AS alert_message,
-        snort_rule,
-        classification,
-        priority,
-        protocol,
-        service,
-        COALESCE(NULLIF(src_addr, ''), src) AS src_ip,
-        src_port,
-        COALESCE(NULLIF(dst_addr, ''), dst) AS dst_ip,
-        dst_port,
-        direction,
-        pkt_len,
-        ttl,
-        tcp_flags,
-        icmp_type,
-        icmp_code,
-        gid,
-        sid,
-        rev,
-        raw_json
-    FROM alerts
-    ORDER BY id DESC
-    LIMIT 100
-""")
-
-if signature_alerts.empty:
-    st.info("No alerts available to explain yet.")
-else:
-    selected_id = st.selectbox(
-        "Select an alert/signature to understand",
-        signature_alerts["id"].tolist(),
-        format_func=lambda alert_id: (
-            f"Alert {alert_id} | "
-            f"{signature_alerts.loc[signature_alerts['id'] == alert_id, 'alert_message'].iloc[0]}"
-        )
-    )
-
-    selected = signature_alerts[signature_alerts["id"] == selected_id].iloc[0]
-
-    selected_for_explanation = {
-        "Alert Message": selected.get("alert_message"),
-        "Rule ID": selected.get("snort_rule"),
-        "Classification": selected.get("classification"),
-        "Priority": selected.get("priority"),
-        "Protocol": selected.get("protocol"),
-        "Service": selected.get("service"),
-        "Source IP": selected.get("src_ip"),
-        "Source Port": selected.get("src_port"),
-        "Destination IP": selected.get("dst_ip"),
-        "Destination Port": selected.get("dst_port"),
-        "Direction": selected.get("direction"),
-        "Packet Length": selected.get("pkt_len"),
-        "TTL": selected.get("ttl"),
-        "TCP Flags": selected.get("tcp_flags"),
-        "ICMP Type": selected.get("icmp_type"),
-        "ICMP Code": selected.get("icmp_code"),
-    }
-
-    st.markdown(signature_plain_english(selected_for_explanation))
-
-    st.markdown("### Protocol-specific interpretation")
-    st.info(protocol_meaning(selected_for_explanation))
-
-    rule_text = find_rule_by_sid(selected.get("sid"))
-
-    st.markdown("### Snort rule metadata")
-
-    meta_col1, meta_col2, meta_col3, meta_col4 = st.columns(4)
-
-    meta_col1.metric("GID", selected.get("gid") if pd.notna(selected.get("gid")) else "N/A")
-    meta_col2.metric("SID", selected.get("sid") if pd.notna(selected.get("sid")) else "N/A")
-    meta_col3.metric("REV", selected.get("rev") if pd.notna(selected.get("rev")) else "N/A")
-    meta_col4.metric("Priority", selected.get("priority") if pd.notna(selected.get("priority")) else "N/A")
-
-    if rule_text:
-        rule_msg = extract_rule_option(rule_text, "msg")
-        rule_class = extract_rule_option(rule_text, "classtype")
-        rule_sid = extract_rule_option(rule_text, "sid")
-        rule_rev = extract_rule_option(rule_text, "rev")
-
-        rule_details = pd.DataFrame([
-            {"Field": "Rule Message", "Value": rule_msg},
-            {"Field": "Class Type", "Value": rule_class},
-            {"Field": "SID", "Value": rule_sid},
-            {"Field": "Revision", "Value": rule_rev},
-        ])
-
-        st.dataframe(rule_details, use_container_width=True, hide_index=True)
-
-        with st.expander("View original Snort rule"):
-            st.code(rule_text, language="text")
-    else:
-        st.warning(
-            "Could not find the original rule in the local Community rules file. "
-            "The alert is still valid, but the rule may come from another inspector, "
-            "a generated event, or a different rule file."
-        )
-
-    st.markdown("### 📚 Snort Rule Documentation Database")
-
-    selected_gid = selected.get("gid", 1)
-    selected_sid = selected.get("sid", None)
-
-    rule_doc = load_rule_doc(selected_gid, selected_sid)
-
-    if rule_doc:
-        doc_found = rule_doc.get("doc_found", 0)
-
-        st.markdown(
-            f"**Rule ID:** `{rule_doc.get('gid', 1)}:{rule_doc.get('sid')}:{rule_doc.get('rev', '')}`"
-        )
-
-        doc_url = rule_doc.get("doc_url", "")
-        if doc_url:
-            st.markdown(f"**Documentation URL:** {doc_url}")
-
-        if doc_found == 1:
-            st.success("Snort.org documentation was found for this rule.")
+        st.info("No alert timeline available yet.")
+
+    # Extra JSON feature charts
+    feature_col1, feature_col2 = st.columns(2)
+
+    with feature_col1:
+        protocol_alerts_df = load_query("""
+            SELECT protocol, COUNT(*) AS alerts
+            FROM alerts
+            WHERE protocol IS NOT NULL AND protocol != ''
+            GROUP BY protocol
+            ORDER BY alerts DESC
+        """)
+
+        if not protocol_alerts_df.empty:
+            fig = px.bar(
+                protocol_alerts_df,
+                x="alerts",
+                y="protocol",
+                orientation="h",
+                title="Alert Protocol Distribution"
+            )
+            fig.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=300,
+                margin=dict(l=10, r=10, t=50, b=35)
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("No Snort.org documentation was found. Showing local rule-file metadata only.")
+            st.info("No alert protocol data available yet.")
 
-        show_doc_field("Rule Category", rule_doc.get("rule_category"))
-        show_doc_field("Rule Explanation", rule_doc.get("rule_explanation"))
-        show_doc_field("What To Look For", rule_doc.get("what_to_look_for"))
-        show_doc_field("Known Usage", rule_doc.get("known_usage"))
-        show_doc_field("False Positives", rule_doc.get("false_positives"))
+    with feature_col2:
+        src_alerts_df = load_query("""
+            SELECT COALESCE(NULLIF(src_addr, ''), src) AS source_ip, COUNT(*) AS alerts
+            FROM alerts
+            WHERE COALESCE(NULLIF(src_addr, ''), src) IS NOT NULL
+              AND COALESCE(NULLIF(src_addr, ''), src) != ''
+            GROUP BY source_ip
+            ORDER BY alerts DESC
+            LIMIT 10
+        """)
 
-        if rule_doc.get("cve_ids"):
-            st.markdown("**CVE References:**")
-            st.write(rule_doc.get("cve_ids"))
-
-        if rule_doc.get("mitre_id"):
-            st.markdown("**MITRE ATT&CK Mapping:**")
-            st.write(
-                f"{rule_doc.get('mitre_id')} — "
-                f"{rule_doc.get('mitre_tactic', '')} / "
-                f"{rule_doc.get('mitre_technique', '')}"
+        if not src_alerts_df.empty:
+            fig = px.bar(
+                src_alerts_df,
+                x="alerts",
+                y="source_ip",
+                orientation="h",
+                title="Top Alert Source IPs"
             )
-
-        with st.expander("Local Snort Rule Metadata"):
-            show_doc_field("Message", rule_doc.get("msg"))
-            show_doc_field("Classification", rule_doc.get("classtype"))
-            show_doc_field("Protocol", rule_doc.get("protocol"))
-            show_doc_field("Source", f"{rule_doc.get('src_net')}:{rule_doc.get('src_port')}")
-            show_doc_field("Destination", f"{rule_doc.get('dst_net')}:{rule_doc.get('dst_port')}")
-            show_doc_field("Flow", rule_doc.get("flow"))
-            show_doc_field("Service", rule_doc.get("service"))
-            show_doc_field("Content Matches", rule_doc.get("content_matches"))
-            show_doc_field("Metadata", rule_doc.get("metadata"))
-            show_doc_field("References from Rule File", rule_doc.get("references_text"))
-
-        with st.expander("Original Rule Text from rule_docs Database"):
-            st.code(rule_doc.get("rule_text", ""), language="text")
-    else:
-        st.info("No rule documentation database entry found for this alert.")
-
-with st.expander("ℹ️Snort JSON Feature Meaning"):
-    feature_meaning = pd.DataFrame([
-        {"Feature": "Alert Message", "Meaning": "The Snort rule message explaining what was detected."},
-        {"Feature": "Rule ID", "Meaning": "Snort rule identifier in gid:sid:rev format."},
-        {"Feature": "Classification", "Meaning": "The general category of the alert."},
-        {"Feature": "Priority", "Meaning": "Severity level. Lower number means more serious."},
-        {"Feature": "Protocol", "Meaning": "Network protocol, such as TCP, UDP, or ICMP."},
-        {"Feature": "Service", "Meaning": "Detected application/service, such as HTTP, FTP, SNMP, or unknown."},
-        {"Feature": "Source/Destination IP", "Meaning": "The endpoints involved in the alert."},
-        {"Feature": "Source/Destination Port", "Meaning": "The TCP/UDP ports involved. ICMP alerts usually do not have ports."},
-        {"Feature": "Direction", "Meaning": "C2S means client-to-server. S2C means server-to-client."},
-        {"Feature": "Packet Length", "Meaning": "Size of the packet that triggered the alert."},
-        {"Feature": "TTL", "Meaning": "Time To Live value from the IP header."},
-        {"Feature": "TCP Flags", "Meaning": "TCP control flags, useful for SYN/FIN/NULL/Xmas scan analysis."},
-        {"Feature": "ICMP Type/Code", "Meaning": "ICMP message details. Type 8 is Echo Request; type 0 is Echo Reply."},
-        {"Feature": "Client/Server Packets and Bytes", "Meaning": "Flow counters showing traffic volume in each direction."},
-    ])
-
-    st.dataframe(feature_meaning, use_container_width=True, hide_index=True)
-
-raw_alerts = load_query("""
-    SELECT id, timestamp, COALESCE(NULLIF(msg, ''), rule) AS message, raw_json
-    FROM alerts
-    WHERE raw_json IS NOT NULL AND raw_json != ''
-    ORDER BY id DESC
-    LIMIT 100
-""")
-
-if not raw_alerts.empty:
-    with st.expander("Inspect Raw JSON Alert"):
-        selected_alert = st.selectbox(
-            "Choose an alert",
-            raw_alerts["id"].tolist(),
-            format_func=lambda alert_id: (
-                f"Alert {alert_id} | "
-                f"{raw_alerts.loc[raw_alerts['id'] == alert_id, 'message'].iloc[0]}"
+            fig.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=300,
+                margin=dict(l=10, r=10, t=50, b=35)
             )
-        )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No alert source IP data available yet.")
 
-        selected_raw = raw_alerts.loc[raw_alerts["id"] == selected_alert, "raw_json"].iloc[0]
+    port_col1, port_col2 = st.columns(2)
+
+    with port_col1:
+        dst_port_df = load_query("""
+            SELECT dst_port, COUNT(*) AS alerts
+            FROM alerts
+            WHERE dst_port IS NOT NULL
+            GROUP BY dst_port
+            ORDER BY alerts DESC
+            LIMIT 10
+        """)
+
+        if not dst_port_df.empty:
+            dst_port_df["dst_port"] = dst_port_df["dst_port"].astype(str)
+
+            fig = px.bar(
+                dst_port_df,
+                x="alerts",
+                y="dst_port",
+                orientation="h",
+                title="Top Alert Destination Ports"
+            )
+            fig.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=280,
+                margin=dict(l=10, r=10, t=50, b=35)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No destination port data yet. This is normal for ICMP alerts.")
+
+    # Recent detailed alert table with row selection
+    st.subheader("Detailed Recent Snort Alerts")
+    st.caption(
+        "Click a row in the table to load the matching rule documentation from "
+        "`data/json/rule_docs_preprocessed_by_sid.json`."
+    )
+
+    recent_alerts = load_query("""
+        SELECT
+            id AS "Alert ID",
+            timestamp AS "Time",
+            COALESCE(NULLIF(msg, ''), rule) AS "Alert Message",
+            snort_rule AS "Rule ID",
+            classification AS "Classification",
+            priority AS "Priority",
+            protocol AS "Protocol",
+            service AS "Service",
+            COALESCE(NULLIF(src_addr, ''), src) AS "Source IP",
+            src_port AS "Source Port",
+            COALESCE(NULLIF(dst_addr, ''), dst) AS "Destination IP",
+            dst_port AS "Destination Port",
+            direction AS "Direction",
+            pkt_len AS "Packet Length",
+            ttl AS "TTL",
+            tcp_flags AS "TCP Flags",
+            icmp_type AS "ICMP Type",
+            icmp_code AS "ICMP Code",
+            client_pkts AS "Client Packets",
+            client_bytes AS "Client Bytes",
+            server_pkts AS "Server Packets",
+            server_bytes AS "Server Bytes",
+            gid AS "GID",
+            sid AS "SID",
+            rev AS "REV",
+            raw_json AS "Raw JSON"
+        FROM alerts
+        ORDER BY id DESC
+        LIMIT 100
+    """)
+
+    selected = None
+
+    if not recent_alerts.empty:
+        def priority_label(p):
+            if p == 1:
+                return "High"
+            elif p == 2:
+                return "Medium"
+            elif p == 3:
+                return "Low"
+            return "Unknown"
+
+        recent_alerts["Priority Level"] = recent_alerts["Priority"].apply(priority_label)
+
+        table_columns = [
+            "Time",
+            "Alert Message",
+            "Rule ID",
+            "Classification",
+            "Priority",
+            "Priority Level",
+            "Protocol",
+            "Service",
+            "Source IP",
+            "Source Port",
+            "Destination IP",
+            "Destination Port",
+            "Direction",
+            "Packet Length",
+            "TTL",
+            "TCP Flags",
+            "ICMP Type",
+            "ICMP Code",
+            "Client Packets",
+            "Client Bytes",
+            "Server Packets",
+            "Server Bytes",
+        ]
+
+        existing_columns = [col for col in table_columns if col in recent_alerts.columns]
+        display_alerts = recent_alerts[existing_columns]
+
+        selected_row_positions = []
 
         try:
-            st.json(json.loads(selected_raw))
-        except Exception:
-            st.code(selected_raw) 
+            table_event = st.dataframe(
+                display_alerts,
+                use_container_width=True,
+                height=420,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="recent_snort_alerts_selectable_table"
+            )
 
-# =========================
-# Recent Packets
-# =========================
+            if hasattr(table_event, "selection") and table_event.selection:
+                selected_row_positions = table_event.selection.rows
 
-st.divider()
-st.subheader("Recent Network Packets")
+        except TypeError:
+            st.dataframe(
+                display_alerts,
+                use_container_width=True,
+                height=420,
+                hide_index=True
+            )
+            st.warning(
+                "Interactive row selection is not available in this Streamlit version. "
+                "Showing the latest alert by default."
+            )
 
-recent_packets = load_query("""
-    SELECT timestamp, src, dst, protocol, src_port, dst_port, size
-    FROM packets
-    ORDER BY id DESC
-    LIMIT 100
-""")
+        if selected_row_positions:
+            selected = recent_alerts.iloc[selected_row_positions[0]]
+        else:
+            selected = recent_alerts.iloc[0]
+            st.info("No row selected yet. The latest alert is shown below by default.")
 
-if not recent_packets.empty:
-    st.dataframe(recent_packets, use_container_width=True, height=300)
-else:
-    st.info("No recent packet records yet.")
+        st.caption(
+            "Each alert is generated when packet contents match a Snort rule signature. "
+            "Priority indicates severity, where 1 is high, 2 is medium, and 3 is low. "
+            "JSON alert fields add protocol, service, packet length, TTL, ICMP, TCP, and flow information."
+        )
+    else:
+        st.info("No recent Snort alerts yet.")
 
+    # =========================
+    # Selected Alert Explanation
+    # =========================
 
+    st.subheader("Selected Alert Rule Details")
+
+    if selected is None:
+        st.info("Select an alert row from the table above to view rule details.")
+    else:
+        selected_message = selected.get("Alert Message", "Unknown alert")
+        selected_rule = selected.get("Rule ID", "N/A")
+        selected_gid = selected.get("GID", 1)
+        selected_sid = selected.get("SID", None)
+        selected_rev = selected.get("REV", "N/A")
+
+        st.markdown(
+            f"""
+            <div class="selected-alert-card">
+                <div class="small-muted">Selected Alert</div>
+                <h4 style="margin: 4px 0 8px 0;">{selected_message}</h4>
+                <div class="small-muted">
+                    Rule: <code>{selected_rule}</code> &nbsp; | &nbsp;
+                    GID: <code>{selected_gid}</code> &nbsp; | &nbsp;
+                    SID: <code>{selected_sid}</code> &nbsp; | &nbsp;
+                    REV: <code>{selected_rev}</code>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        selected_for_explanation = {
+            "Alert Message": selected.get("Alert Message"),
+            "Rule ID": selected.get("Rule ID"),
+            "Classification": selected.get("Classification"),
+            "Priority": selected.get("Priority"),
+            "Protocol": selected.get("Protocol"),
+            "Service": selected.get("Service"),
+            "Source IP": selected.get("Source IP"),
+            "Source Port": selected.get("Source Port"),
+            "Destination IP": selected.get("Destination IP"),
+            "Destination Port": selected.get("Destination Port"),
+            "Direction": selected.get("Direction"),
+            "Packet Length": selected.get("Packet Length"),
+            "TTL": selected.get("TTL"),
+            "TCP Flags": selected.get("TCP Flags"),
+            "ICMP Type": selected.get("ICMP Type"),
+            "ICMP Code": selected.get("ICMP Code"),
+        }
+
+        st.markdown(signature_plain_english(selected_for_explanation))
+
+        st.markdown("### Protocol-specific interpretation")
+        st.info(protocol_meaning(selected_for_explanation))
+
+        st.markdown("### Rule Documentation from Preprocessed JSON")
+        rule_doc = load_rule_doc_from_json(selected_gid, selected_sid)
+        show_json_rule_doc(rule_doc, selected_gid, selected_sid)
+
+        selected_raw = selected.get("Raw JSON")
+        if selected_raw is not None and str(selected_raw).strip() not in ["", "nan", "None"]:
+            with st.expander("Inspect Selected Raw JSON Alert"):
+                try:
+                    st.json(json.loads(selected_raw))
+                except Exception:
+                    st.code(str(selected_raw))
+
+    with st.expander("Snort JSON Feature Meaning"):
+        feature_meaning = pd.DataFrame([
+            {"Feature": "Alert Message", "Meaning": "The Snort rule message explaining what was detected."},
+            {"Feature": "Rule ID", "Meaning": "Snort rule identifier in gid:sid:rev format."},
+            {"Feature": "Classification", "Meaning": "The general category of the alert."},
+            {"Feature": "Priority", "Meaning": "Severity level. Lower number means more serious."},
+            {"Feature": "Protocol", "Meaning": "Network protocol, such as TCP, UDP, or ICMP."},
+            {"Feature": "Service", "Meaning": "Detected application/service, such as HTTP, FTP, SNMP, or unknown."},
+            {"Feature": "Source/Destination IP", "Meaning": "The endpoints involved in the alert."},
+            {"Feature": "Source/Destination Port", "Meaning": "The TCP/UDP ports involved. ICMP alerts usually do not have ports."},
+            {"Feature": "Direction", "Meaning": "C2S means client-to-server. S2C means server-to-client."},
+            {"Feature": "Packet Length", "Meaning": "Size of the packet that triggered the alert."},
+            {"Feature": "TTL", "Meaning": "Time To Live value from the IP header."},
+            {"Feature": "TCP Flags", "Meaning": "TCP control flags, useful for SYN/FIN/NULL/Xmas scan analysis."},
+            {"Feature": "ICMP Type/Code", "Meaning": "ICMP message details. Type 8 is Echo Request; type 0 is Echo Reply."},
+            {"Feature": "Client/Server Packets and Bytes", "Meaning": "Flow counters showing traffic volume in each direction."},
+        ])
+
+        st.dataframe(feature_meaning, use_container_width=True, hide_index=True)
+
+elif page == "Network Traffic Dashboard":
+    st.subheader("Network Traffic Dashboard")
+    st.caption(
+        "This page focuses on normal/live network traffic visibility, protocol distribution, "
+        "top hosts, services, and recent captured packets."
+    )
+
+    # =========================
+    # Network Traffic Metrics
+    # =========================
+
+    n1, n2, n3, n4, n5, n6, n7 = st.columns(7)
+
+    with n1:
+        metric_card("Total Packets", total_packets, "blue")
+    with n2:
+        metric_card("Active Hosts", active_hosts, "green")
+    with n3:
+        metric_card("TCP Packets", tcp_count, "blue")
+    with n4:
+        metric_card("UDP Packets", udp_count, "purple")
+    with n5:
+        metric_card("ICMP Packets", icmp_count, "orange")
+    with n6:
+        metric_card("HTTP Requests", http_count, "green")
+    with n7:
+        metric_card("SSH Connections", ssh_count, "purple")
+
+    st.divider()
+
+    # =========================
+    # Traffic Overview
+    # =========================
+
+    st.subheader("Network Traffic Overview")
+
+    left, right = st.columns(2)
+
+    with left:
+        protocol_df = load_query("""
+            SELECT protocol, COUNT(*) AS count
+            FROM packets
+            GROUP BY protocol
+            ORDER BY count DESC
+        """)
+
+        if not protocol_df.empty:
+            fig = px.pie(
+                protocol_df,
+                names="protocol",
+                values="count",
+                title="Protocol Distribution",
+                hole=0.35
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No packet data available yet.")
+
+    with right:
+        timeline_df = load_query("""
+            SELECT timestamp, COUNT(*) AS packets
+            FROM packets
+            GROUP BY timestamp
+            ORDER BY timestamp
+        """)
+
+        if not timeline_df.empty:
+            fig = px.line(
+                timeline_df,
+                x="timestamp",
+                y="packets",
+                title="Packets Over Time",
+                markers=True
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No timeline data available yet.")
+
+    # =========================
+    # Top Talkers
+    # =========================
+
+    st.subheader("Top Network Hosts")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        src_df = load_query("""
+            SELECT src, COUNT(*) AS packets
+            FROM packets
+            WHERE src != 'unknown'
+            GROUP BY src
+            ORDER BY packets DESC
+            LIMIT 10
+        """)
+
+        if not src_df.empty:
+            fig = px.bar(
+                src_df,
+                x="packets",
+                y="src",
+                orientation="h",
+                title="Top Source IPs"
+            )
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No source IP data available.")
+
+    with col_b:
+        dst_df = load_query("""
+            SELECT dst, COUNT(*) AS packets
+            FROM packets
+            WHERE dst != 'unknown'
+            GROUP BY dst
+            ORDER BY packets DESC
+            LIMIT 10
+        """)
+
+        if not dst_df.empty:
+            fig = px.bar(
+                dst_df,
+                x="packets",
+                y="dst",
+                orientation="h",
+                title="Top Destination IPs"
+            )
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No destination IP data available.")
+
+    # =========================
+    # Service Distribution
+    # =========================
+
+    st.subheader("Service Distribution")
+
+    service_df = load_query("""
+        SELECT protocol AS service, COUNT(*) AS packets
+        FROM packets
+        WHERE protocol IN ('HTTP', 'SSH', 'ICMP', 'DNS', 'HTTPS')
+        GROUP BY protocol
+        ORDER BY packets DESC
+    """)
+
+    if not service_df.empty:
+        service_chart_col, service_table_col = st.columns([2, 1])
+
+        with service_chart_col:
+            fig = px.bar(
+                service_df,
+                x="packets",
+                y="service",
+                orientation="h",
+                title="Observed Network Services"
+            )
+            fig.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                xaxis_title="Packets",
+                yaxis_title="Service",
+                height=320,
+                margin=dict(l=10, r=10, t=50, b=35)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with service_table_col:
+            st.dataframe(
+                service_df,
+                use_container_width=True,
+                hide_index=True,
+                height=220
+            )
+    else:
+        st.info("No service traffic available yet. Generate HTTP, SSH, ICMP, or DNS traffic.")
+
+    # =========================
+    # Recent Packets
+    # =========================
+
+    st.divider()
+    st.subheader("Recent Network Packets")
+
+    recent_packets = load_query("""
+        SELECT timestamp, src, dst, protocol, src_port, dst_port, size
+        FROM packets
+        ORDER BY id DESC
+        LIMIT 100
+    """)
+
+    if not recent_packets.empty:
+        st.dataframe(recent_packets, use_container_width=True, height=300)
+    else:
+        st.info("No recent packet records yet.")

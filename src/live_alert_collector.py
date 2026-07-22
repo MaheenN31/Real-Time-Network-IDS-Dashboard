@@ -6,7 +6,7 @@ from pathlib import Path
 
 DB_FILE = "ids_live.db"
 ALERT_FILE = Path.home() / "snort_logs" / "alert_json.txt"
-MAX_ALERTS = 1000
+MAX_ALERTS = 10000
 
 
 def to_int(value):

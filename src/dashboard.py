@@ -14,8 +14,16 @@ import streamlit as st
 
 DB_FILE = Path("ids_live.db")
 RULE_DOC_JSON_FILE = Path("data/json/rule_docs_preprocessed_by_sid.json")
+SNORT_ALERT_LOG_FILE = Path("/home/maheen/snort_logs/alert_json.txt")
+ENRICHED_ALERT_JSON_FILE = Path("data/json/enriched_snort_alerts_with_rule_docs.json")
 
-DASHBOARD_VERSION = "v3.0"
+# PCAP replay test statistics from the controlled Kali tcpreplay run
+PCAP_TOTAL_PACKETS = 135292
+PCAP_TOTAL_BYTES = 39277152
+PCAP_REPLAY_PPS = 800
+PCAP_REPLAY_DURATION_SECONDS = 169.11
+
+DASHBOARD_VERSION = "v4.0"
 
 st.set_page_config(
     page_title="Network IDS Dashboard",
@@ -23,7 +31,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st_autorefresh(interval=30000, key="dashboard_refresh")
+st_autorefresh(interval=10000, key="dashboard_refresh")
 
 st.markdown("""
 <style>
@@ -303,6 +311,60 @@ def load_query(query):
         df = pd.DataFrame()
     conn.close()
     return df
+
+@st.cache_data(ttl=10)
+def count_raw_alert_lines():
+    """
+    Count raw Snort JSON alerts from alert_json.txt.
+    This shows total alerts written by Snort, while ids_live.db keeps recent alerts.
+    """
+    try:
+        with SNORT_ALERT_LOG_FILE.open("r", encoding="utf-8", errors="ignore") as file:
+            return sum(1 for line in file if line.strip().startswith("{"))
+    except FileNotFoundError:
+        return 0
+    except Exception:
+        return 0
+
+
+@st.cache_data(ttl=10)
+def load_enriched_alerts_json():
+    """
+    Load the combined enriched alert JSON export.
+    The export contains alert fields from ids_live.db joined with rule documentation.
+    """
+    if not ENRICHED_ALERT_JSON_FILE.exists():
+        return {}
+
+    try:
+        with ENRICHED_ALERT_JSON_FILE.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def find_enriched_alert_by_id(alert_id):
+    """
+    Find the selected alert record inside enriched_snort_alerts_with_rule_docs.json.
+    """
+    enriched_data = load_enriched_alerts_json()
+    alerts_list = enriched_data.get("alerts", [])
+
+    try:
+        selected_id = int(alert_id)
+    except Exception:
+        return None
+
+    for item in alerts_list:
+        try:
+            if int(item.get("alert_id")) == selected_id:
+                return item
+        except Exception:
+            continue
+
+    return None
+
 
 def load_rule_doc(gid, sid):
     if sid is None or pd.isna(sid):
@@ -915,7 +977,19 @@ alerts = load_table("alerts")
 # =========================
 
 total_packets = len(packets)
-total_alerts = len(alerts)
+recent_alerts_stored = len(alerts)
+total_raw_alerts = count_raw_alert_lines()
+
+alert_ratio = 0
+alert_percentage = 0
+packets_per_alert = 0
+
+if PCAP_TOTAL_PACKETS > 0:
+    alert_ratio = total_raw_alerts / PCAP_TOTAL_PACKETS
+    alert_percentage = alert_ratio * 100
+
+if total_raw_alerts > 0:
+    packets_per_alert = PCAP_TOTAL_PACKETS / total_raw_alerts
 
 active_hosts = 0
 
@@ -949,8 +1023,8 @@ if not packets.empty:
 if page == "Alert Dashboard":
     st.subheader("Alert Dashboard")
     st.caption(
-        "This page focuses on Snort alerts, alert severity, signatures, rule documentation, "
-        "and raw JSON alert details."
+        "This page focuses on Snort alerts, alert severity, signatures, enriched alert JSON, "
+        "and rule documentation details."
     )
 
     # =========================
@@ -1022,7 +1096,7 @@ if page == "Alert Dashboard":
     a1, a2, a3, a4, a5 = st.columns(5)
 
     with a1:
-        metric_card("Total Alerts", total_alerts, "red")
+        metric_card("Total Raw Alerts", total_raw_alerts, "red")
     with a2:
         metric_card("Alert Types", unique_alert_types, "purple")
     with a3:
@@ -1031,6 +1105,79 @@ if page == "Alert Dashboard":
         metric_card("Medium Priority", medium_alerts, "orange")
     with a5:
         metric_card("Low Priority", low_alerts, "green")
+
+    st.info(
+        f"Total Raw Alerts is counted from `{SNORT_ALERT_LOG_FILE}`. "
+        "The dashboard database keeps only the most recent 10000 alerts, so detailed tables, charts, "
+        "priority counts, and alert-type counts are based on the recent alerts stored in `ids_live.db`."
+    )
+
+    st.subheader("PCAP Replay & Alert Generation Statistics")
+    st.caption(
+        "This table summarizes the controlled PCAP replay test and the Snort alerts generated from it."
+    )
+
+    pcap_stats_df = pd.DataFrame([
+        {
+            "Metric": "Packets Replayed",
+            "Value": f"{PCAP_TOTAL_PACKETS:,}",
+            "Meaning": "Packets successfully sent by tcpreplay from the PCAP."
+        },
+        {
+            "Metric": "Replay Speed",
+            "Value": f"{PCAP_REPLAY_PPS} pps",
+            "Meaning": "Configured tcpreplay sending rate."
+        },
+        {
+            "Metric": "Replay Duration",
+            "Value": f"{PCAP_REPLAY_DURATION_SECONDS:.2f} seconds",
+            "Meaning": "Time taken by tcpreplay to replay the PCAP once."
+        },
+        {
+            "Metric": "Replay Data Size",
+            "Value": f"{PCAP_TOTAL_BYTES / (1024 * 1024):.2f} MB",
+            "Meaning": "Total replayed payload/data size reported by tcpreplay."
+        },
+        {
+            "Metric": "Raw Alerts Generated",
+            "Value": f"{total_raw_alerts:,}",
+            "Meaning": "Snort JSON alerts counted from alert_json.txt."
+        },
+        {
+            "Metric": "Alert Percentage",
+            "Value": f"{alert_percentage:.2f}%",
+            "Meaning": "Raw alerts divided by replayed packets."
+        },
+        {
+            "Metric": "Packets per Alert",
+            "Value": f"{packets_per_alert:.1f}",
+            "Meaning": "Average replayed packets per generated Snort alert."
+        },
+        {
+            "Metric": "DB Alerts Stored",
+            "Value": f"{recent_alerts_stored:,}",
+            "Meaning": "Alert records currently stored in ids_live.db."
+        },
+        {
+            "Metric": "Packet Rows Captured",
+            "Value": f"{total_packets:,}",
+            "Meaning": "Packet rows inserted by live_packet_collector.py; this is not the same as packets replayed."
+        },
+    ])
+
+    st.dataframe(
+        pcap_stats_df,
+        use_container_width=True,
+        hide_index=True,
+        height=355
+    )
+
+    st.info(
+        f"Summary: {PCAP_TOTAL_PACKETS:,} packets were replayed at {PCAP_REPLAY_PPS} pps in "
+        f"{PCAP_REPLAY_DURATION_SECONDS:.2f} seconds. Snort generated {total_raw_alerts:,} raw alerts, "
+        f"which is {alert_percentage:.2f}% of the replayed packets. Packet table count is collected separately "
+        "by live_packet_collector.py and may be lower if the collector was stopped or the database was locked."
+    )
 
     alert_col1, alert_col2 = st.columns(2)
 
@@ -1200,8 +1347,8 @@ if page == "Alert Dashboard":
     # Recent detailed alert table with row selection
     st.subheader("Detailed Recent Snort Alerts")
     st.caption(
-        "Click a row in the table to load the matching rule documentation from "
-        "`data/json/rule_docs_preprocessed_by_sid.json`."
+        "Click a row in the table to load the combined enriched JSON from "
+        "`data/json/enriched_snort_alerts_with_rule_docs.json`."
     )
 
     recent_alerts = load_query("""
@@ -1325,68 +1472,66 @@ if page == "Alert Dashboard":
     # Selected Alert Explanation
     # =========================
 
-    st.subheader("Selected Alert Rule Details")
+    st.subheader("Selected Enriched Alert JSON")
 
     if selected is None:
-        st.info("Select an alert row from the table above to view rule details.")
+        st.info("Select an alert row from the table above to view the combined enriched alert JSON.")
     else:
-        selected_message = selected.get("Alert Message", "Unknown alert")
-        selected_rule = selected.get("Rule ID", "N/A")
-        selected_gid = selected.get("GID", 1)
-        selected_sid = selected.get("SID", None)
-        selected_rev = selected.get("REV", "N/A")
+        selected_alert_id = selected.get("Alert ID")
+        enriched_alert = find_enriched_alert_by_id(selected_alert_id)
 
-        st.markdown(
-            f"""
-            <div class="selected-alert-card">
-                <div class="small-muted">Selected Alert</div>
-                <h4 style="margin: 4px 0 8px 0;">{selected_message}</h4>
-                <div class="small-muted">
-                    Rule: <code>{selected_rule}</code> &nbsp; | &nbsp;
-                    GID: <code>{selected_gid}</code> &nbsp; | &nbsp;
-                    SID: <code>{selected_sid}</code> &nbsp; | &nbsp;
-                    REV: <code>{selected_rev}</code>
+        if enriched_alert is None:
+            st.warning(
+                "This selected alert was not found in the enriched JSON file. "
+                "Run `python3 scripts/export_enriched_alerts_json.py` to refresh the combined JSON."
+            )
+
+            st.markdown("### Selected Alert from Database")
+            st.caption(
+                "Fallback view: this is the selected alert directly from `ids_live.db`, "
+                "not the combined enriched JSON."
+            )
+            st.json(selected.to_dict())
+
+        else:
+            alert_info = enriched_alert.get("alert", {})
+            rule_doc_found = enriched_alert.get("rule_documentation_found", False)
+
+            selected_message = alert_info.get("alert_message", "Unknown alert")
+            selected_rule = alert_info.get("rule_id", "N/A")
+            selected_gid = alert_info.get("gid", "N/A")
+            selected_sid = alert_info.get("sid", "N/A")
+            selected_rev = alert_info.get("rev", "N/A")
+
+            st.markdown(
+                f"""
+                <div class="selected-alert-card">
+                    <div class="small-muted">Selected Enriched Alert</div>
+                    <h4 style="margin: 4px 0 8px 0;">{html.escape(str(selected_message))}</h4>
+                    <div class="small-muted">
+                        Alert ID: <code>{html.escape(str(selected_alert_id))}</code> &nbsp; | &nbsp;
+                        Rule: <code>{html.escape(str(selected_rule))}</code> &nbsp; | &nbsp;
+                        GID: <code>{html.escape(str(selected_gid))}</code> &nbsp; | &nbsp;
+                        SID: <code>{html.escape(str(selected_sid))}</code> &nbsp; | &nbsp;
+                        REV: <code>{html.escape(str(selected_rev))}</code>
+                    </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+                """,
+                unsafe_allow_html=True
+            )
 
-        selected_for_explanation = {
-            "Alert Message": selected.get("Alert Message"),
-            "Rule ID": selected.get("Rule ID"),
-            "Classification": selected.get("Classification"),
-            "Priority": selected.get("Priority"),
-            "Protocol": selected.get("Protocol"),
-            "Service": selected.get("Service"),
-            "Source IP": selected.get("Source IP"),
-            "Source Port": selected.get("Source Port"),
-            "Destination IP": selected.get("Destination IP"),
-            "Destination Port": selected.get("Destination Port"),
-            "Direction": selected.get("Direction"),
-            "Packet Length": selected.get("Packet Length"),
-            "TTL": selected.get("TTL"),
-            "TCP Flags": selected.get("TCP Flags"),
-            "ICMP Type": selected.get("ICMP Type"),
-            "ICMP Code": selected.get("ICMP Code"),
-        }
+            if rule_doc_found:
+                st.success("Rule documentation is included in the combined enriched JSON.")
+            else:
+                st.warning("No matching rule documentation was found for this alert in the enriched JSON.")
 
-        st.markdown(signature_plain_english(selected_for_explanation))
+            st.caption(
+                "This JSON combines the selected alert from `ids_live.db` with its matching "
+                "rule description from `rule_docs_preprocessed_by_sid.json`."
+            )
 
-        st.markdown("### Protocol-specific interpretation")
-        st.info(protocol_meaning(selected_for_explanation))
-
-        st.markdown("### Rule Documentation from Preprocessed JSON")
-        rule_doc = load_rule_doc_from_json(selected_gid, selected_sid)
-        show_json_rule_doc(rule_doc, selected_gid, selected_sid)
-
-        selected_raw = selected.get("Raw JSON")
-        if selected_raw is not None and str(selected_raw).strip() not in ["", "nan", "None"]:
-            with st.expander("Inspect Selected Raw JSON Alert"):
-                try:
-                    st.json(json.loads(selected_raw))
-                except Exception:
-                    st.code(str(selected_raw))
+            with st.expander("Combined Enriched Alert JSON", expanded=True):
+                st.json(enriched_alert)
 
     with st.expander("Snort JSON Feature Meaning"):
         feature_meaning = pd.DataFrame([
